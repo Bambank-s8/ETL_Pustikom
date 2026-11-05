@@ -2,11 +2,22 @@ import logging
 from datetime import datetime, timedelta
 
 import requests
-from airflow.sdk import BaseHook, dag, task
+from airflow.sdk import dag, task
+
+try:
+    from airflow.sdk import BaseHook
+except ImportError:  # Airflow 3.0.x
+    from airflow.hooks.base import BaseHook
 
 log = logging.getLogger(__name__)
 
 ID_SDM = "516381bf-1fce-4874-ae5f-a6b8cc24c5b0"
+
+# SISTER memblokir User-Agent bawaan python-requests (HTTP 403)
+HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
+}
 
 
 def _login() -> tuple[str, str]:
@@ -22,10 +33,11 @@ def _login() -> tuple[str, str]:
             "password": conn.password,
             "id_pengguna": extra["id_pengguna"],
         },
-        headers={"Accept": "application/json"},
+        headers=HEADERS,
         timeout=30,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        raise RuntimeError(f"Login SISTER gagal: HTTP {resp.status_code} | {resp.text[:300]}")
     token = resp.json().get("token")
     if not token:
         raise ValueError("Login berhasil tetapi token tidak ada di respons")
@@ -50,13 +62,11 @@ def sister_penelitian():
         resp = requests.get(
             f"{base_url}/penelitian",
             params={"id_sdm": ID_SDM},
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {token}",
-            },
+            headers={**HEADERS, "Authorization": f"Bearer {token}"},
             timeout=60,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"GET /penelitian gagal: HTTP {resp.status_code} | {resp.text[:300]}")
         data = resp.json()
         log.info("Jumlah penelitian: %d", len(data))
         return data
@@ -71,8 +81,8 @@ def sister_penelitian():
                 row.get("tahun_pelaksanaan"),
                 row.get("lama_kegiatan"),
             )
-          
+
     proses(ambil_penelitian())
 
+
 sister_penelitian()
-EOF
