@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 ENV_PATH = "/opt/airflow/repo/.env"
 
 # Angkatan paling awal yang ditarik (sampai tahun berjalan)
-ANGKATAN_AWAL = 2000
+ANGKATAN_AWAL = 2020
 
 # Kode semester AS400 bawaan (bukan kode PDDIKTI). Bisa diganti lewat param DAG.
 SEMESTER_DEFAULT = "125"
