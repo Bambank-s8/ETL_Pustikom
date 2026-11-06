@@ -7,8 +7,9 @@ Alur:
     1. buat_tabel     -> buat tabel siakad_mahasiswa bila belum ada
     2. daftar_prodi   -> ambil daftar kode prodi (atau pakai param kode_prodi)
     3. tarik_dan_simpan_mahasiswa (1 task per prodi)
-                      -> GET dataMahasiswaPerProdiAngkatan untuk tiap angkatan,
-                         lalu upsert ke MariaDB berdasarkan NIM
+                      -> GET dataMahasiswaPerProdiAngkatan untuk angkatan
+                         ANGKATAN_AWAL s.d. ANGKATAN_AKHIR, lalu upsert ke MariaDB
+                         berdasarkan NIM
 
 Konfigurasi dibaca dari .env server (lihat .env.example di root repo):
     SIAKAD_LAMA_URL, TOKEN_SIAKAD_LAMA, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
@@ -34,8 +35,9 @@ log = logging.getLogger(__name__)
 # File .env berada di luar folder dags
 ENV_PATH = "/opt/airflow/repo/.env"
 
-# Angkatan paling awal yang ditarik (sampai tahun berjalan)
+# Rentang angkatan yang ditarik (keduanya ikut)
 ANGKATAN_AWAL = 2020
+ANGKATAN_AKHIR = 2020
 
 # Kode semester AS400 bawaan (bukan kode PDDIKTI). Bisa diganti lewat param DAG.
 SEMESTER_DEFAULT = "125"
@@ -362,9 +364,18 @@ def siakad_v2_mahasiswa_ir_irfan():
 
         # 1. EXTRACT: satu request per angkatan
         data = []
-        for angkatan in range(ANGKATAN_AWAL, datetime.now().year + 1):
+        angkatan_rusak = []
+        for angkatan in range(ANGKATAN_AWAL, ANGKATAN_AKHIR + 1):
             endpoint = f"dataMahasiswaPerProdiAngkatan/{kode_prodi}/{angkatan}/{semester}"
-            mahasiswa = get_siakad(base_url, endpoint, token)
+            try:
+                mahasiswa = get_siakad(base_url, endpoint, token)
+            except ValueError as e:
+                # Server AS400 kadang gagal meng-encode datanya sendiri dan membalas teks
+                # (mis. "Malformed UTF-8 characters"). Angkatan ini dilewati supaya angkatan
+                # lain di prodi yang sama tetap tersimpan. Error token/koneksi tetap menggagalkan task.
+                log.warning("Prodi %s angkatan %d dilewati: %s", kode_prodi, angkatan, e)
+                angkatan_rusak.append(angkatan)
+                continue
             if mahasiswa:
                 log.info("Prodi %s angkatan %d: %d mahasiswa.", kode_prodi, angkatan, len(mahasiswa))
             data.extend(mahasiswa)
@@ -398,6 +409,11 @@ def siakad_v2_mahasiswa_ir_irfan():
             "Prodi %s selesai. Dari API: %d | Disimpan: %d | Dilewati: %d",
             kode_prodi, len(data), len(baris), jumlah_dilewati,
         )
+        if angkatan_rusak:
+            log.warning(
+                "Prodi %s: angkatan %s tidak tersimpan karena respons SIAKAD Lama rusak.",
+                kode_prodi, angkatan_rusak,
+            )
 
     # Urutan: buat tabel -> ambil daftar prodi -> tarik & simpan per prodi (paralel)
     prodi = daftar_prodi()
