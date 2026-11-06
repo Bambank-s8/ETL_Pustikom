@@ -3,18 +3,14 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from airflow.sdk import dag, task
-from simta_common import SimtaApi
+from simta_common import SimtaApi, daftar_prodi, per_page
 from sister_common import get_db_connection
 
 log = logging.getLogger(__name__)
 
-# Daftar kode prodi yang diambil. Token SIMTA harus punya ability untuk
-# setiap kode di sini (prodi:{kode} atau prodi:*), kalau tidak API membalas 403.
-PRODI_LIST = ["05106"]
-
-# Jumlah baris per halaman. Maksimum 1000 menurut dokumentasi SIMTA, tapi
-# dibatasi lebih kecil supaya tiap request ringan dan tidak memicu blokir.
-PER_PAGE = 100
+# Kode prodi (SIMTA_KODE_PRODI) dan baris per halaman (SIMTA_PER_PAGE)
+# dibaca dari .env saat task jalan. Token SIMTA harus punya ability untuk
+# setiap kode prodi, kalau tidak API membalas 403.
 
 # Jeda (detik) antarhalaman.
 JEDA_HALAMAN = 1.0
@@ -98,11 +94,13 @@ def simta_mahasiswa():
         # 1. EXTRACT: semua halaman, semua prodi (ikuti links.next)
         rows = []
         skipped = 0
+        prodi_list = daftar_prodi()
+        params = {"per_page": per_page()}
         with SimtaApi() as api:
-            for kode_prodi in PRODI_LIST:
+            for kode_prodi in prodi_list:
                 jumlah_prodi = 0
-                path = f"api/etl/prodi/{kode_prodi}/mahasiswa"
-                for row in api.iter_pages(path, params={"per_page": PER_PAGE}, jeda=JEDA_HALAMAN):
+                path = f"prodi/{kode_prodi}/mahasiswa"  # relatif ke SIMTA_API_URL
+                for row in api.iter_pages(path, params=params, jeda=JEDA_HALAMAN):
                     mhs_id = row.get("id")
                     if not mhs_id:
                         log.warning("Data mahasiswa dilewati karena tidak memiliki id (prodi %s).", kode_prodi)
