@@ -1,0 +1,5 @@
+# Berisi password DB dan token SIAKAD, jangan di-commit
+.env
+
+__pycache__/
+*.pyc
