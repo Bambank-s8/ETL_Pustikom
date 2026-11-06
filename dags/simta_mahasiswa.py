@@ -12,8 +12,12 @@ log = logging.getLogger(__name__)
 # setiap kode di sini (prodi:{kode} atau prodi:*), kalau tidak API membalas 403.
 PRODI_LIST = ["05106"]
 
-# Jumlah baris per halaman (maksimum 1000 menurut dokumentasi SIMTA).
-PER_PAGE = 1000
+# Jumlah baris per halaman. Maksimum 1000 menurut dokumentasi SIMTA, tapi
+# dibatasi lebih kecil supaya tiap request ringan dan tidak memicu blokir.
+PER_PAGE = 100
+
+# Jeda (detik) antarhalaman.
+JEDA_HALAMAN = 1.0
 
 CREATE_TABLE = """
     CREATE TABLE IF NOT EXISTS simta_mahasiswa (
@@ -98,7 +102,7 @@ def simta_mahasiswa():
             for kode_prodi in PRODI_LIST:
                 jumlah_prodi = 0
                 path = f"api/etl/prodi/{kode_prodi}/mahasiswa"
-                for row in api.iter_pages(path, params={"per_page": PER_PAGE}):
+                for row in api.iter_pages(path, params={"per_page": PER_PAGE}, jeda=JEDA_HALAMAN):
                     mhs_id = row.get("id")
                     if not mhs_id:
                         log.warning("Data mahasiswa dilewati karena tidak memiliki id (prodi %s).", kode_prodi)
