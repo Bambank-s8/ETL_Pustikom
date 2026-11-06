@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import requests
-from airflow.sdk import dag, get_current_context, task
+from airflow.sdk import dag, task
 from sister_common import get_db_connection
 
 log = logging.getLogger(__name__)
@@ -22,13 +22,6 @@ HEADERS = {
     "Accept": "application/json",
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
 }
-
-# Filter opsional untuk GET /aset. Kosong = ambil semua aset.
-# Bisa diisi saat trigger manual lewat "Trigger DAG w/ config".
-FILTER_KEYS = (
-    "search", "kd_upb", "kd_brg_bmu", "kondisi", "intra_extra",
-    "usul_hapus", "henti_guna", "tanggal_perolehan_from", "tanggal_perolehan_to",
-)
 
 CREATE_TABLE = """
     CREATE TABLE IF NOT EXISTS e_aset_daftar_aset (
@@ -116,7 +109,7 @@ def login(session: requests.Session, base_url: str) -> str:
     return token
 
 
-def fetch_all_aset(filters: dict) -> list[dict]:
+def fetch_all_aset() -> list[dict]:
     """Login sekali, lalu GET /aset halaman demi halaman sampai habis."""
     base_url = _base_url()
     with requests.Session() as session:
@@ -127,7 +120,7 @@ def fetch_all_aset(filters: dict) -> list[dict]:
         while page <= last_page:
             resp = session.get(
                 f"{base_url}/aset",
-                params={**filters, "per_page": PER_PAGE, "page": page},
+                params={"per_page": PER_PAGE, "page": page},
                 timeout=60,
             )
             if not resp.ok:
@@ -215,19 +208,14 @@ def _transform(row: dict) -> tuple:
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
-    params={k: "" for k in FILTER_KEYS},
     tags=["e-aset", "etl", "mariadb"],
 )
 def e_aset_daftar_aset():
 
     @task
     def tarik_dan_simpan_aset():
-        params = get_current_context()["params"]
-        filters = {k: str(params[k]) for k in FILTER_KEYS if params.get(k) not in (None, "")}
-        log.info("Filter /aset: %s", filters or "(tanpa filter, ambil semua)")
-
         # 1. EXTRACT
-        data = fetch_all_aset(filters)
+        data = fetch_all_aset()
         total_data = len(data)
         log.info("Berhasil mengambil %d data aset dari e-Aset.", total_data)
         if total_data == 0:
